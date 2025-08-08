@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FSC Token Arena (MVP)</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>FSC Token Arena — MVP</h1>
+      <div id="tguser"></div>
+    </header>
+
+    <section id="balance-section">
+      <h2>Баланс</h2>
+      <div class="balances">
+        <div><strong>FSC (оффчейн):</strong> <span id="fsc-balance">—</span></div>
+        <div><strong>Адрес депозита:</strong> <code id="deposit-address">—</code></div>
+      </div>
+      <div class="actions">
+        <button id="btn-refresh">Обновить</button>
+        <button id="btn-withdraw">Вывести FSC</button>
+      </div>
+    </section>
+
+    <section id="shop-section">
+      <h2>Магазин (за FSC)</h2>
+      <div class="shop">
+        <button class="buy" data-sku="potion_small" data-amount="10">Малая зелька — 10 FSC</button>
+        <button class="buy" data-sku="potion_large" data-amount="25">Большая зелька — 25 FSC</button>
+      </div>
+    </section>
+
+    <section id="duel-section">
+      <h2>Дуэль (пошагово)</h2>
+      <div class="duel">
+        <label>
+          Класс:
+          <select id="class">
+            <option value="mage">Маг</option>
+            <option value="fighter">Боец</option>
+            <option value="assassin">Убийца</option>
+          </select>
+        </label>
+        <button id="btn-attack">Атаковать</button>
+        <pre id="log"></pre>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const tg = window.Telegram?.WebApp;
+    tg?.expand();
+
+    const backendBase = (window.location.search.includes('local=1'))
+      ? 'http://localhost:3000'
+      : (window.__BACKEND_BASE__ || 'https://YOUR-BACKEND-URL');
+
+    // Helper: call backend with initData from Telegram
+    async function api(path, opts={}) {
+      const initData = tg?.initData || '';
+      const headers = Object.assign({'Content-Type': 'application/json', 'X-Telegram-InitData': initData}, opts.headers||{});
+      const res = await fetch(backendBase + path, { ...opts, headers });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    const tgUserDiv = document.getElementById('tguser');
+    if (tg?.initDataUnsafe?.user) {
+      const u = tg.initDataUnsafe.user;
+      tgUserDiv.textContent = `Привет, ${u.first_name || 'игрок'}!`;
+    } else {
+      tgUserDiv.textContent = 'Запущено вне Telegram WebApp. Для полной авторизации открой через бота.';
+    }
+
+    async function refresh() {
+      try {
+        const data = await api('/api/me');
+        document.getElementById('fsc-balance').textContent = data.balance_fsc.toString();
+        document.getElementById('deposit-address').textContent = data.deposit_address || '—';
+      } catch (e) {
+        console.error(e);
+        alert('Ошибка получения баланса: ' + e.message);
+      }
+    }
+
+    document.getElementById('btn-refresh').addEventListener('click', refresh);
+
+    document.querySelectorAll('.buy').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const sku = btn.dataset.sku;
+        const amount = Number(btn.dataset.amount);
+        try {
+          const res = await api('/api/purchase', {method:'POST', body: JSON.stringify({ sku, amount })});
+          alert('Покупка успешна! Остаток: ' + res.balance_fsc);
+        } catch (e) {
+          alert('Покупка не прошла: ' + e.message);
+        }
+      });
+    });
+
+    document.getElementById('btn-withdraw').addEventListener('click', async () => {
+      const to = prompt('Адрес BEP-20 для вывода FSC:');
+      const amount = prompt('Сколько FSC вывести?');
+      if (!to || !amount) return;
+      try {
+        const res = await api('/api/withdraw', {method:'POST', body: JSON.stringify({ to, amount: Number(amount) })});
+        alert('Создан вывод. Тx: ' + (res.txHash || 'поставлен в очередь'));
+      } catch (e) {
+        alert('Ошибка вывода: ' + e.message);
+      }
+    });
+
+    // Simple duel demo
+    document.getElementById('btn-attack').addEventListener('click', () => {
+      const cls = document.getElementById('class').value;
+      const dmg = Math.floor(Math.random()*10)+5;
+      const log = document.getElementById('log');
+      log.textContent += `Ваш ${cls} ударил на ${dmg} урона.\n`;
+    });
+
+    refresh();
+  </script>
+</body>
+</html>
